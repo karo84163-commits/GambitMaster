@@ -1,0 +1,35 @@
+name: Build APK
+on: {workflow_dispatch: {}, push: {branches: [main, master]}}
+permissions: {contents: write}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Распаковать проект, если загружен project.zip
+        run: if [ -f project.zip ]; then unzip -oq project.zip; fi
+      - uses: actions/setup-node@v4
+        with: {node-version: 20}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: 17}
+      - run: npm install
+      - name: Проверка легальности всех ходов
+        run: node test/verify.js
+      - name: Подключить Stockfish
+        run: |
+          mkdir -p /tmp/sf && cd /tmp/sf && npm init -y >/dev/null && npm install stockfish || true
+          JS=$(find /tmp/sf/node_modules/stockfish -name '*lite-single*.js' | head -1)
+          [ -z "$JS" ] && JS=$(find /tmp/sf/node_modules/stockfish -name '*single*.js' | head -1)
+          mkdir -p $GITHUB_WORKSPACE/www/engine
+          if [ -n "$JS" ]; then cp "$JS" $GITHUB_WORKSPACE/www/engine/stockfish.js; cp "${JS%.js}.wasm" $GITHUB_WORKSPACE/www/engine/stockfish.wasm || true; echo "Stockfish: $JS"; else echo "Stockfish не найден: будет встроенный движок"; fi
+      - run: npx cap add android
+      - run: npx cap sync android
+      - run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk GambitMaster.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk
+          name: Gambit Master APK
+          body: Скачайте GambitMaster.apk и установите на телефон.
+          files: GambitMaster.apk
+          make_latest: true
